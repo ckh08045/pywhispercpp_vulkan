@@ -1,0 +1,201 @@
+name: Build pywhispercpp wheels
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+env:
+  # 포크 기준 whisper.cpp submodule 버전은 CMakeLists.txt/submodule로 고정
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ══════════════════════════════════════════
+  # Linux wheels
+  # ══════════════════════════════════════════
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: vulkan
+            env_var: WHISPER_VULKAN=1
+            apt_extra: libvulkan-dev shaderc
+            artifact: pywhispercpp-vulkan-linux
+
+          - backend: cpu
+            env_var: ""
+            apt_extra: ""
+            artifact: pywhispercpp-cpu-linux
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive      # whisper.cpp submodule 포함
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.16
+        with:
+          key: linux-${{ matrix.backend }}-pywhispercpp
+          evict-old-files: 7d
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake \
+            ${{ matrix.apt_extra }}
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build deps
+        run: pip install build wheel cmake
+
+      - name: Build wheel
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          # 환경변수로 백엔드 선택
+          export ${{ matrix.env_var }} 2>/dev/null || true
+          python -m build --wheel --outdir dist/
+
+      - name: Inspect wheel
+        run: |
+          ls -lh dist/
+          python -m zipfile -l dist/*.whl | grep -E "\.(so|py)$" | head -20
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*.whl
+          retention-days: 30
+
+  # ══════════════════════════════════════════
+  # Windows wheels
+  # ══════════════════════════════════════════
+  build-windows:
+    runs-on: windows-2022
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: vulkan
+            artifact: pywhispercpp-vulkan-windows
+            needs_vulkan_sdk: true
+
+          - backend: cpu
+            artifact: pywhispercpp-cpu-windows
+            needs_vulkan_sdk: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup sccache
+        uses: hendrikmuhs/ccache-action@v1.2.16
+        with:
+          key: windows-${{ matrix.backend }}-pywhispercpp
+          variant: sccache
+          evict-old-files: 7d
+
+      - name: Install Vulkan SDK
+        if: matrix.needs_vulkan_sdk == true
+        uses: jakoch/install-vulkan-sdk-action@v1.0.4
+        with:
+          vulkan_version: 1.3.280.0
+          install_runtime: false
+          cache: true
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build deps
+        run: pip install build wheel cmake
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build wheel (vulkan)
+        if: matrix.backend == 'vulkan'
+        env:
+          WHISPER_VULKAN: "1"
+          CMAKE_C_COMPILER_LAUNCHER: sccache
+          CMAKE_CXX_COMPILER_LAUNCHER: sccache
+        run: python -m build --wheel --outdir dist/
+
+      - name: Build wheel (cpu)
+        if: matrix.backend == 'cpu'
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: sccache
+          CMAKE_CXX_COMPILER_LAUNCHER: sccache
+        run: python -m build --wheel --outdir dist/
+
+      - name: Inspect wheel
+        shell: pwsh
+        run: Get-ChildItem dist\ | Format-Table Name, Length -AutoSize
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist\*.whl
+          retention-days: 30
+
+  # ══════════════════════════════════════════
+  # 태그 푸시 → GitHub Release
+  # ══════════════════════════════════════════
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: wheels/
+          merge-multiple: true    # 모든 artifact를 한 폴더로
+
+      - name: List wheels
+        run: ls -lh wheels/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          files: wheels/*.whl
+          body: |
+            ## pywhispercpp custom wheels
+
+            ### 설치 방법
+            ```bash
+            # GPU 환경 (AMD / NVIDIA / Intel iGPU)
+            pip install pywhispercpp_vulkan-*.whl
+
+            # CPU 전용 / 폴백
+            pip install pywhispercpp_cpu-*.whl
+            ```
+
+            ### 선택 기준
+            | wheel | 사용 조건 |
+            |---|---|
+            | `*-vulkan-*linux*.whl` | Linux + Vulkan 드라이버 설치됨 |
+            | `*-cpu-*linux*.whl` | Linux CPU 전용 |
+            | `*-vulkan-*win*.whl` | Windows + GPU 드라이버 설치됨 |
+            | `*-cpu-*win*.whl` | Windows CPU 전용 |
+
+            > Vulkan wheel은 드라이버 없는 환경에서 import 시 실패합니다.
+            > 불확실한 환경에서는 cpu wheel을 사용하세요.
