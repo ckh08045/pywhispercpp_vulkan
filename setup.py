@@ -80,6 +80,15 @@ class CMakeBuild(build_ext):
             cwd=build_temp,
             check=True,
         )
+        
+def get_version() -> str:
+    base = "1.4.1"
+    if os.environ.get("WHISPER_VULKAN", "0") == "1":
+        return f"{base}.vulkan"
+    elif os.environ.get("WHISPER_OPENBLAS", "0") == "1":
+        return f"{base}.openblas"
+    else:
+        return f"{base}.cpu"
 
 
 def get_package_name() -> str:
@@ -93,7 +102,7 @@ def get_package_name() -> str:
 
 setup(
     name=get_package_name(),
-    version="1.2.0",
+    version=get_version(),   # "1.4.1.vulkan" 또는 "1.4.1.cpu
     author="abdeladim-s (fork)",
     description="Python bindings for whisper.cpp (custom build)",
     packages=["pywhispercpp"],
