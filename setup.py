@@ -6,18 +6,9 @@ from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 
 
-# ── 환경변수로 백엔드 선택 ─────────────────────────────────────────
-# 사용법:
-#   WHISPER_VULKAN=1 pip install .
-#   WHISPER_OPENBLAS=1 pip install .
-#   (아무것도 없으면 CPU only)
-# ─────────────────────────────────────────────────────────────────
-
-def get_cmake_flags() -> list[str]:
+def get_cmake_flags() -> list:
     flags = [
-        # 공통: 이식성 확보 (빌드 머신 CPU 특화 명령어 비활성화)
         "-DGGML_NATIVE=OFF",
-        # 불필요한 빌드 타겟 제거
         "-DWHISPER_BUILD_TESTS=OFF",
         "-DWHISPER_BUILD_SERVER=OFF",
         "-DWHISPER_SDL2=OFF",
@@ -26,16 +17,13 @@ def get_cmake_flags() -> list[str]:
     if os.environ.get("WHISPER_VULKAN", "0") == "1":
         flags.append("-DGGML_VULKAN=ON")
         print("[setup.py] Backend: Vulkan")
-
     elif os.environ.get("WHISPER_OPENBLAS", "0") == "1":
         flags.append("-DGGML_BLAS=ON")
         flags.append("-DGGML_BLAS_VENDOR=OpenBLAS")
         print("[setup.py] Backend: OpenBLAS")
-
     else:
         print("[setup.py] Backend: CPU only")
 
-    # 추가 사용자 정의 플래그 (WHISPER_EXTRA_CMAKE_ARGS 환경변수)
     extra = os.environ.get("WHISPER_EXTRA_CMAKE_ARGS", "")
     if extra:
         flags.extend(extra.split())
@@ -45,12 +33,11 @@ def get_cmake_flags() -> list[str]:
 
 class CMakeBuild(build_ext):
     def build_extension(self, ext):
-        import cmake
-
         ext_fullpath = Path(self.get_ext_fullpath(ext.name))
         extdir = ext_fullpath.parent.resolve()
 
         build_type = "Debug" if self.debug else "Release"
+
         cmake_args = [
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
@@ -59,30 +46,39 @@ class CMakeBuild(build_ext):
 
         build_args = ["--config", build_type]
         if sys.platform != "win32":
-            build_args += ["--", f"-j{os.cpu_count() or 2}"]
+            # Linux: nproc 기반, OOM 방지를 위해 최대 4로 제한
+            jobs = min(os.cpu_count() or 2, 4)
+            build_args += ["--", f"-j{jobs}"]
         else:
             build_args += ["--", "/m"]
 
         build_temp = Path(self.build_temp) / ext.name
         build_temp.mkdir(parents=True, exist_ok=True)
 
-        source_dir = Path(__file__).parent
+        # ★ 핵심 픽스: .resolve()로 절대경로 강제
+        # Windows에서 __file__ 이 상대경로('.') 일 때
+        # cmake 가 build_temp 기준으로 경로를 해석해서 CMakeLists.txt 를 못 찾는 문제 방지
+        source_dir = Path(__file__).parent.resolve()
 
+        print(f"[setup.py] source_dir  : {source_dir}")
+        print(f"[setup.py] build_temp  : {build_temp}")
+        print(f"[setup.py] cmake_args  : {cmake_args}")
+
+        # Configure
         subprocess.run(
             ["cmake", str(source_dir)] + cmake_args,
             cwd=build_temp,
             check=True,
         )
+
+        # Build — verbose 출력으로 에러 위치 파악 용이
         subprocess.run(
-            ["cmake", "--build", "."] + build_args,
+            ["cmake", "--build", ".", "--verbose"] + build_args,
             cwd=build_temp,
             check=True,
         )
 
 
-# ── wheel 이름에 백엔드 반영 ─────────────────────────────────────
-# whisper_cpp_vulkan-x.x.x-cp311-...whl  또는
-# whisper_cpp_cpu-x.x.x-cp311-...whl
 def get_package_name() -> str:
     if os.environ.get("WHISPER_VULKAN", "0") == "1":
         return "pywhispercpp-vulkan"
@@ -94,7 +90,7 @@ def get_package_name() -> str:
 
 setup(
     name=get_package_name(),
-    version="1.2.0",           # whisper.cpp 버전과 맞춰서 관리
+    version="1.2.0",
     author="abdeladim-s (fork)",
     description="Python bindings for whisper.cpp (custom build)",
     packages=["pywhispercpp"],
