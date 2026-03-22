@@ -84,11 +84,11 @@ class CMakeBuild(build_ext):
 def get_version() -> str:
     base = "1.4.1"
     if os.environ.get("WHISPER_VULKAN", "0") == "1":
-        return f"{base}.vulkan"
+        return f"{base}+vulkan"
     elif os.environ.get("WHISPER_OPENBLAS", "0") == "1":
-        return f"{base}.openblas"
+        return f"{base}+openblas"
     else:
-        return f"{base}.cpu"
+        return f"{base}+cpu"
 
 
 def get_package_name() -> str:
