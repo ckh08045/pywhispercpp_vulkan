@@ -22,7 +22,8 @@ jobs:
         include:
           - backend: vulkan
             env_var: WHISPER_VULKAN=1
-            apt_extra: libvulkan-dev shaderc
+            apt_extra: libvulkan-dev           # 헤더+링커만
+            needs_vulkan_sdk: true             # → SDK 액션이 glslc 제공
             artifact: pywhispercpp-vulkan-linux
 
           - backend: cpu
