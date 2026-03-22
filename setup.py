@@ -35,8 +35,8 @@ class CMakeBuild(build_ext):
     def build_extension(self, ext):
         ext_fullpath = Path(self.get_ext_fullpath(ext.name))
         extdir = ext_fullpath.parent.resolve()
-
         build_type = "Debug" if self.debug else "Release"
+        is_vulkan = os.environ.get("WHISPER_VULKAN", "0") == "1"
 
         cmake_args = [
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
@@ -44,34 +44,37 @@ class CMakeBuild(build_ext):
             f"-DCMAKE_BUILD_TYPE={build_type}",
         ] + get_cmake_flags()
 
+        # ── Windows: Visual Studio 제너레이터 명시 ──────────────────────
+        # ExternalProject_Add(vulkan-shaders-gen) 가 서브 cmake 인스턴스를
+        # 띄울 때 부모 제너레이터를 상속받지 못해 MSVC를 못 찾는 문제 방지.
+        # 제너레이터를 명시하면 ExternalProject도 동일 제너레이터로 configure됨.
+        if sys.platform == "win32":
+            cmake_args += ["-G", "Visual Studio 17 2022", "-A", "x64"]
+
         build_args = ["--config", build_type]
-        if sys.platform != "win32":
-            # Linux: nproc 기반, OOM 방지를 위해 최대 4로 제한
-            jobs = min(os.cpu_count() or 2, 4)
-            build_args += ["--", f"-j{jobs}"]
-        else:
+        if sys.platform == "win32":
             build_args += ["--", "/m"]
+        else:
+            # Vulkan 셰이더 병렬 컴파일은 메모리를 많이 소비
+            # GHA runner 7GB 기준: vulkan=-j2, cpu=-j4
+            jobs = 2 if is_vulkan else min(os.cpu_count() or 2, 4)
+            build_args += ["--", f"-j{jobs}"]
 
         build_temp = Path(self.build_temp) / ext.name
         build_temp.mkdir(parents=True, exist_ok=True)
 
-        # ★ 핵심 픽스: .resolve()로 절대경로 강제
-        # Windows에서 __file__ 이 상대경로('.') 일 때
-        # cmake 가 build_temp 기준으로 경로를 해석해서 CMakeLists.txt 를 못 찾는 문제 방지
+        # .resolve()로 절대경로 강제 (Windows에서 '.'으로 전달되는 문제 방지)
         source_dir = Path(__file__).parent.resolve()
 
-        print(f"[setup.py] source_dir  : {source_dir}")
-        print(f"[setup.py] build_temp  : {build_temp}")
-        print(f"[setup.py] cmake_args  : {cmake_args}")
+        print(f"[setup.py] source_dir : {source_dir}")
+        print(f"[setup.py] build_temp : {build_temp}")
+        print(f"[setup.py] cmake_args : {cmake_args}")
 
-        # Configure
         subprocess.run(
             ["cmake", str(source_dir)] + cmake_args,
             cwd=build_temp,
             check=True,
         )
-
-        # Build — verbose 출력으로 에러 위치 파악 용이
         subprocess.run(
             ["cmake", "--build", ".", "--verbose"] + build_args,
             cwd=build_temp,
