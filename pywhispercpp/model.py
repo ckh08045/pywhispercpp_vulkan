@@ -274,15 +274,26 @@ class Model:
 
 
 
+    # def _set_params(self, kwargs: dict) -> None:
+    #     """
+    #     Private method to set the kwargs params to the `Params` class
+    #     :param kwargs: dict like object for the different params
+    #     :return: None
+    #     """
+    #     for param in kwargs:
+    #         setattr(self._params, param, kwargs[param])
+    
     def _set_params(self, kwargs: dict) -> None:
-        """
-        Private method to set the kwargs params to the `Params` class
-        :param kwargs: dict like object for the different params
-        :return: None
-        """
         for param in kwargs:
-            setattr(self._params, param, kwargs[param])
-
+            if param == 'beam_size':
+                # beam_search는 dict로 노출됨
+                v = kwargs[param]
+                if v > 1:
+                    self._params.strategy = pw.whisper_sampling_strategy.WHISPER_SAMPLING_BEAM_SEARCH
+                    self._params.beam_search = {"beam_size": v, "patience": -1.0}
+            else:
+                setattr(self._params, param, kwargs[param])
+                
     def _transcribe(self, audio: np.ndarray, n_processors: int = None):
         """
         Private method to call the whisper.cpp/whisper_full function
