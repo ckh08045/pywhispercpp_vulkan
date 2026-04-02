@@ -30,13 +30,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup sccache
-        uses: hendrikmuhs/ccache-action@v1.2.16
-        with:
-          key: windows-${{ matrix.backend }}-pywhispercpp
-          variant: sccache
-          evict-old-files: 7d
-
       - name: Install Vulkan SDK
         if: matrix.needs_vulkan_sdk == true
         uses: jakoch/install-vulkan-sdk-action@v1.0.4
