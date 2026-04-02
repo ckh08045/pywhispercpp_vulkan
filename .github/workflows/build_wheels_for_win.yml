@@ -61,30 +61,43 @@ jobs:
         run: |
           pip install build wheel cmake setuptools setuptools-scm ninja `
                       pybind11 numpy repairwheel
-
+      
       - name: Build wheel (vulkan)
-        if: matrix.backend == 'vulkan'
-        env:
-          WHISPER_VULKAN: "1"
-          # MSBuild 중첩 버그를 피하기 위해 Ninja 빌드 시스템 강제 적용
-          CMAKE_GENERATOR: Ninja
-          CMAKE_C_COMPILER_LAUNCHER: sccache
-          CMAKE_CXX_COMPILER_LAUNCHER: sccache
-        run: python -m build --no-isolation --wheel --outdir dist/
+              if: matrix.backend == 'vulkan'
+              env:
+                WHISPER_VULKAN: "1"
+                CMAKE_C_COMPILER_LAUNCHER: sccache
+                CMAKE_CXX_COMPILER_LAUNCHER: sccache
+              run: python -m build --no-isolation --wheel --outdir dist/
 
       - name: Build wheel (cpu)
         if: matrix.backend == 'cpu'
         env:
-          # CPU 빌드에서도 동일하게 Ninja 강제 적용
-          CMAKE_GENERATOR: Ninja
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
         run: python -m build --no-isolation --wheel --outdir dist/
 
+      # ── [추가된 부분] 빌드된 DLL 파일들을 .whl 안에 끼워 넣는 과정 ──
+      - name: Repair wheel (Windows)
+        shell: pwsh
+        run: |
+          # 1. 생성된 wheel 파일 이름 찾기
+          $wheel_file = Get-ChildItem -Path dist\*.whl | Select-Object -First 1
+          
+          # 2. CMake가 dll을 생성한 경로 지정 (Python 3.11 기준 경로)
+          $dll_dir = "build\temp.win-amd64-cpython-311\Release\pywhispercpp._pywhispercpp\bin\Release"
+          
+          # 3. repairwheel 실행 (dll 폴더를 지정하여 바인딩)
+          repairwheel $wheel_file.FullName -o dist\repaired -l $dll_dir
+          
+          # 4. 기존 wheel을 수리된 wheel로 덮어쓰기 및 임시 폴더 삭제
+          Move-Item -Path dist\repaired\*.whl -Destination dist\ -Force
+          Remove-Item -Path dist\repaired -Recurse
+
       - name: Inspect wheel
         shell: pwsh
         run: Get-ChildItem dist\ | Format-Table Name, Length -AutoSize
-
+        
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
