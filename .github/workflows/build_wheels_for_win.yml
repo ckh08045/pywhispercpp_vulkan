@@ -66,6 +66,8 @@ jobs:
         if: matrix.backend == 'vulkan'
         env:
           WHISPER_VULKAN: "1"
+          # MSBuild 중첩 버그를 피하기 위해 Ninja 빌드 시스템 강제 적용
+          CMAKE_GENERATOR: Ninja
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
         run: python -m build --no-isolation --wheel --outdir dist/
@@ -73,6 +75,8 @@ jobs:
       - name: Build wheel (cpu)
         if: matrix.backend == 'cpu'
         env:
+          # CPU 빌드에서도 동일하게 Ninja 강제 적용
+          CMAKE_GENERATOR: Ninja
           CMAKE_C_COMPILER_LAUNCHER: sccache
           CMAKE_CXX_COMPILER_LAUNCHER: sccache
         run: python -m build --no-isolation --wheel --outdir dist/
