@@ -38,9 +38,7 @@ jobs:
           install_runtime: false
           cache: true
 
-      # MSVC Developer Command Prompt 환경 설정
-      # cl.exe를 PATH에 추가 → ExternalProject(vulkan-shaders-gen)의 서브 cmake가
-      # Visual Studio 환경 상속 없이도 cl.exe를 자동 발견
+      # MSVC 환경 설정
       - name: Setup MSVC dev env
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -55,44 +53,47 @@ jobs:
         run: |
           pip install build wheel cmake setuptools setuptools-scm ninja `
                       pybind11 numpy repairwheel
-      
-      # [수정됨] 들여쓰기 교정 완료
+
+      # ── [핵심 조치] MAX_PATH 제한을 피하기 위해 최상단 짧은 경로(C:\w)로 복사 ──
+      - name: Move to Short Path (Bypass MAX_PATH limit)
+        shell: cmd
+        run: |
+          mkdir C:\w
+          xcopy /E /H /Y /I . C:\w
+
+      # 이후 모든 스텝은 working-directory를 C:\w 로 지정하여 실행합니다.
       - name: Build wheel (vulkan)
         if: matrix.backend == 'vulkan'
+        working-directory: C:\w
         env:
           WHISPER_VULKAN: "1"
         run: python -m build --no-isolation --wheel --outdir dist/
 
       - name: Build wheel (cpu)
         if: matrix.backend == 'cpu'
+        working-directory: C:\w
         run: python -m build --no-isolation --wheel --outdir dist/
 
-      # ── [추가된 부분] 빌드된 DLL 파일들을 .whl 안에 끼워 넣는 과정 ──
       - name: Repair wheel (Windows)
         shell: pwsh
+        working-directory: C:\w
         run: |
-          # 1. 생성된 wheel 파일 이름 찾기
           $wheel_file = Get-ChildItem -Path dist\*.whl | Select-Object -First 1
-          
-          # 2. CMake가 dll을 생성한 경로 지정 (Python 3.11 기준 경로)
           $dll_dir = "build\temp.win-amd64-cpython-311\Release\pywhispercpp._pywhispercpp\bin\Release"
-          
-          # 3. repairwheel 실행 (dll 폴더를 지정하여 바인딩)
           repairwheel $wheel_file.FullName -o dist\repaired -l $dll_dir
-          
-          # 4. 기존 wheel을 수리된 wheel로 덮어쓰기 및 임시 폴더 삭제
           Move-Item -Path dist\repaired\*.whl -Destination dist\ -Force
           Remove-Item -Path dist\repaired -Recurse
 
       - name: Inspect wheel
         shell: pwsh
+        working-directory: C:\w
         run: Get-ChildItem dist\ | Format-Table Name, Length -AutoSize
         
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist\*.whl
+          path: C:\w\dist\*.whl
           retention-days: 30
 
   # ══════════════════════════════════════════
