@@ -64,7 +64,14 @@ class CMakeBuild(build_ext):
         # 하위 서브모듈(vulkan-shaders-gen 등) 빌드 시 MSVC 환경 변수 
         # 상속 누락 버그를 방지하기 위해 Ninja 빌드 시스템을 사용합니다.
         if sys.platform == "win32":
-            cmake_args += ["-G", "Ninja"]
+            # Ninja를 사용하고, 64비트(x64) 빌드임을 명시
+            cmake_args += [
+                "-G", "Ninja",
+                "-DCMAKE_C_COMPILER=cl",
+                "-DCMAKE_CXX_COMPILER=cl",
+                # MSVC에서 Ninja 사용 시 타겟 아키텍처 명시
+                "-DCMAKE_GENERATOR_PLATFORM=x64" 
+            ]
 
         build_args = ["--config", build_type]
         
