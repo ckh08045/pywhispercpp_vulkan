@@ -65,7 +65,6 @@ jobs:
 
       - name: Build wheel (cpu)
         if: matrix.backend == 'cpu'
-        env:
         run: python -m build --no-isolation --wheel --outdir dist/
 
       # ── [추가된 부분] 빌드된 DLL 파일들을 .whl 안에 끼워 넣는 과정 ──
