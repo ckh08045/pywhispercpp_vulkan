@@ -68,15 +68,11 @@ jobs:
         if: matrix.backend == 'vulkan'
         env:
           WHISPER_VULKAN: "1"
-          CMAKE_C_COMPILER_LAUNCHER: sccache
-          CMAKE_CXX_COMPILER_LAUNCHER: sccache
         run: python -m build --no-isolation --wheel --outdir dist/
 
       - name: Build wheel (cpu)
         if: matrix.backend == 'cpu'
         env:
-          CMAKE_C_COMPILER_LAUNCHER: sccache
-          CMAKE_CXX_COMPILER_LAUNCHER: sccache
         run: python -m build --no-isolation --wheel --outdir dist/
 
       # ── [추가된 부분] 빌드된 DLL 파일들을 .whl 안에 끼워 넣는 과정 ──
