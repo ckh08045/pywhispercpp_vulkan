@@ -48,18 +48,30 @@ class CMakeBuild(build_ext):
         # ExternalProject_Add(vulkan-shaders-gen) 가 서브 cmake 인스턴스를
         # 띄울 때 부모 제너레이터를 상속받지 못해 MSVC를 못 찾는 문제 방지.
         # 제너레이터를 명시하면 ExternalProject도 동일 제너레이터로 configure됨.
+        # if sys.platform == "win32":
+        #     cmake_args += ["-G", "Visual Studio 17 2022", "-A", "x64"]
+
+        # build_args = ["--config", build_type]
+        # if sys.platform == "win32":
+        #     build_args += ["--", "/m"]
+        # else:
+        #     # Vulkan 셰이더 병렬 컴파일은 메모리를 많이 소비
+        #     # GHA runner 7GB 기준: vulkan=-j2, cpu=-j4
+        #     jobs = 2 if is_vulkan else min(os.cpu_count() or 2, 4)
+        #     build_args += ["--", f"-j{jobs}"]
+
+        
+        # 하위 서브모듈(vulkan-shaders-gen 등) 빌드 시 MSVC 환경 변수 
+        # 상속 누락 버그를 방지하기 위해 Ninja 빌드 시스템을 사용합니다.
         if sys.platform == "win32":
-            cmake_args += ["-G", "Visual Studio 17 2022", "-A", "x64"]
+            cmake_args += ["-G", "Ninja"]
 
         build_args = ["--config", build_type]
-        if sys.platform == "win32":
-            build_args += ["--", "/m"]
-        else:
-            # Vulkan 셰이더 병렬 컴파일은 메모리를 많이 소비
-            # GHA runner 7GB 기준: vulkan=-j2, cpu=-j4
-            jobs = 2 if is_vulkan else min(os.cpu_count() or 2, 4)
-            build_args += ["--", f"-j{jobs}"]
-
+        
+        # Windows(Ninja)와 Linux 모두 동일하게 -j 옵션으로 병렬 빌드 수행
+        jobs = 2 if is_vulkan else min(os.cpu_count() or 2, 4)
+        build_args += ["--", f"-j{jobs}"]
+        
         build_temp = Path(self.build_temp) / ext.name
         build_temp.mkdir(parents=True, exist_ok=True)
 
