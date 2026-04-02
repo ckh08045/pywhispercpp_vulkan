@@ -69,8 +69,6 @@ class CMakeBuild(build_ext):
                 "-G", "Ninja",
                 "-DCMAKE_C_COMPILER=cl",
                 "-DCMAKE_CXX_COMPILER=cl",
-                # MSVC에서 Ninja 사용 시 타겟 아키텍처 명시
-                "-DCMAKE_GENERATOR_PLATFORM=x64" 
             ]
 
         build_args = ["--config", build_type]
