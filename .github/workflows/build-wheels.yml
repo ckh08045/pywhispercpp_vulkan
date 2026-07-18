@@ -50,56 +50,75 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.16
-        with:
-          key: linux-${{ matrix.backend }}-py311-pywhispercpp
-          evict-old-files: 7d
-
-      # Vulkan 헤더와 glslc를 동일한 SDK 버전으로 설치합니다.
-      # Ubuntu의 libvulkan-dev는 헤더 버전 충돌 방지를 위해 설치하지 않습니다.
-      - name: Install Vulkan SDK
-        if: matrix.needs_vulkan_sdk
-        uses: jakoch/install-vulkan-sdk-action@v1.0.4
-        with:
-          vulkan_version: "1.3.280.0"
-          install_runtime: false
-          cache: true
-
-      - name: Configure Vulkan SDK environment
-        if: matrix.needs_vulkan_sdk
+      - name: Install system packages
         shell: bash
         run: |
           set -euo pipefail
 
-          SDK_ROOT="$(find "$HOME/vulkan-sdk" \
-            -maxdepth 1 \
-            -mindepth 1 \
-            -type d \
-            | head -1)"
+          sudo apt-get update -qq
+          sudo apt-get install \
+            -y \
+            --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            curl \
+            xz-utils
 
-          if [ -z "$SDK_ROOT" ]; then
-            echo "Vulkan SDK directory was not found."
+      - name: Download and install Vulkan SDK
+        if: matrix.needs_vulkan_sdk
+        shell: bash
+        env:
+          VULKAN_SDK_VERSION: "1.4.304.1"
+        run: |
+          set -euo pipefail
+
+          ARCHIVE="vulkansdk-linux-x86_64-${VULKAN_SDK_VERSION}.tar.xz"
+          URL="https://sdk.lunarg.com/sdk/download/${VULKAN_SDK_VERSION}/linux/${ARCHIVE}"
+          INSTALL_ROOT="$HOME/vulkan-sdk"
+
+          echo "Downloading Vulkan SDK:"
+          echo "$URL"
+
+          mkdir -p "$INSTALL_ROOT"
+
+          curl \
+            --fail \
+            --location \
+            --retry 3 \
+            --retry-delay 5 \
+            --output "/tmp/${ARCHIVE}" \
+            "$URL"
+
+          tar \
+            -xJf "/tmp/${ARCHIVE}" \
+            -C "$INSTALL_ROOT"
+
+          SDK_DIR="$INSTALL_ROOT/${VULKAN_SDK_VERSION}/x86_64"
+
+          if [ ! -d "$SDK_DIR" ]; then
+            echo "Expected Vulkan SDK directory not found: $SDK_DIR"
+            find "$INSTALL_ROOT" -maxdepth 3 -type d
             exit 1
           fi
 
-          if [ -d "$SDK_ROOT/x86_64" ]; then
-            ARCH_DIR="$SDK_ROOT/x86_64"
-          else
-            ARCH_DIR="$SDK_ROOT"
+          if [ ! -x "$SDK_DIR/bin/glslc" ]; then
+            echo "glslc was not found."
+            find "$INSTALL_ROOT" -name glslc -type f
+            exit 1
           fi
 
-          echo "VULKAN_SDK=$ARCH_DIR" >> "$GITHUB_ENV"
-          echo "$ARCH_DIR/bin" >> "$GITHUB_PATH"
-
-          echo "Vulkan SDK: $ARCH_DIR"
-          find "$ARCH_DIR" -name glslc -type f | head -1
+          echo "VULKAN_SDK=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "$SDK_DIR/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$SDK_DIR/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Verify Vulkan SDK
         if: matrix.needs_vulkan_sdk
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "VULKAN_SDK=$VULKAN_SDK"
           which glslc
           glslc --version
 
@@ -143,8 +162,6 @@ jobs:
         shell: bash
         env:
           WHISPER_VULKAN: ${{ matrix.whisper_vulkan }}
-          CMAKE_C_COMPILER_LAUNCHER: ccache
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: |
           set -euo pipefail
 
